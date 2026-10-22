@@ -2,28 +2,11 @@ name: Terraform Destroy
 
 on:
   workflow_dispatch:
-    inputs:
-      confirm_destroy:
-        description: "Type DESTROY to permanently remove the AWS infrastructure"
-        required: true
-        type: string
 
 jobs:
-  confirm:
-    name: Confirm infrastructure destruction
-    runs-on: ubuntu-latest
-    steps:
-      - name: Require explicit confirmation
-        if: inputs.confirm_destroy != 'DESTROY'
-        run: |
-          echo "Set confirm_destroy to DESTROY to continue."
-          exit 1
-
   terraform-destroy:
     name: Destroy Dev Infrastructure
     runs-on: ubuntu-latest
-    needs: confirm
-    if: inputs.confirm_destroy == 'DESTROY'
 
     defaults:
       run:

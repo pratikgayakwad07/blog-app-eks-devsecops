@@ -83,14 +83,13 @@ metadata:
   name: prometheus
   namespace: monitoring
 ---
-# Minimal RBAC - removed nodes/proxy to fix KSV-0047 (privilege escalation)
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: prometheus
 rules:
 - apiGroups: [""]
-  resources: ["nodes", "services", "endpoints", "pods"]
+  resources: ["nodes", "nodes/proxy", "nodes/metrics", "services", "endpoints", "pods"]
   verbs: ["get", "list", "watch"]
 - apiGroups: ["extensions", "apps"]
   resources: ["deployments"]
