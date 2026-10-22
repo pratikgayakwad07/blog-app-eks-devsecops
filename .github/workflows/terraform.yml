@@ -42,21 +42,9 @@ jobs:
         run: terraform validate
 
       - name: Terraform Plan
-        run: terraform plan -out=tfplan
+        run: terraform plan -out=tfplan -lock=false
 
       - name: Terraform Apply
-        run: terraform apply -auto-approve tfplan
+        run: terraform apply -auto-approve -lock=false
 
-      - name: Configure kubectl
-        run: aws eks update-kubeconfig --name blog-prod-eks --region "${{ secrets.AWS_REGION }}"
 
-      - name: Install Argo CD
-        run: |
-          kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
-          kubectl apply --server-side -n argocd \
-            -f https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.5/manifests/install.yaml
-          kubectl rollout status deployment/argocd-server -n argocd --timeout=10m
-          kubectl wait --for=condition=Established crd/applications.argoproj.io --timeout=2m
-
-      - name: Register the GitOps application
-        run: kubectl apply -f ../argocd/application.yaml
