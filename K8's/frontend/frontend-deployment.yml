@@ -30,12 +30,14 @@ spec:
         fsGroup: 101
         seccompProfile:
           type: RuntimeDefault
+        imagePullSecrets:
+        - name: ecr-secret
 
       containers:
 
       - name: frontend
 
-        image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/prod/blog-app:latest
+        image: 122384809512.dkr.ecr.us-east-1.amazonaws.com/prod/blog-app:latest
 
         ports:
         - containerPort: 3000
