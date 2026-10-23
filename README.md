@@ -1,149 +1,211 @@
-# ============================================
-# DevOps Trainee Runbook & Architecture Guide
-# Simple Blog App on AWS EKS (GitOps + Monitoring)
-# ============================================
+# Blog App – EKS DevSecOps Deployment
 
-## 1. Project Overview & Architecture
-This project is an end-to-end containerized three-tier application deployed to Amazon EKS using GitOps (Argo CD), GitHub Actions CI/CD (replacing Jenkins), and full-stack observability with Prometheus, Grafana, and AWS CloudWatch.
+## Overview
 
-### Architecture Topology
-- **Frontend**: React 18 SPA built with Vite, served via Nginx on port 3000 (Kubernetes LoadBalancer Service on Port 80).
-- **Backend API**: Node.js + Express REST API on port 5000 (ClusterIP Service on Port 5000), interacting with MySQL.
-- **Database**: MySQL 8.0 StatefulSet backed by AWS EBS (`gp3` StorageClass via aws-ebs-csi-driver).
-- **CI/CD Automation**: GitHub Actions workflow (`.github/workflows/DevSecOps.yml`) handling Gitleaks secret scan, npm security audit, Trivy vulnerability scan, multi-stage Docker build, push to Amazon ECR, and GitOps manifest updates.
-- **GitOps Continuous Delivery**: Argo CD automatically reconciles changes from the Git repository into the `blog-app` Kubernetes namespace.
-- **Observability**:
-  - Prometheus scraping Node & Pod metrics, with alerting rules for CPU spikes and CrashLoopBackOff.
-  - Grafana pre-provisioned with Prometheus data source and interactive dashboards.
-  - AWS CloudWatch enabled for EKS Control Plane logs (`api`, `audit`, `authenticator`, `controllerManager`, `scheduler`).
+This repository contains a **containerised Blog application** (frontend + backend) that is built, scanned, pushed to Amazon ECR, and deployed to an **Amazon EKS** cluster using **GitOps** with **Argo CD**.  The deployment also provisions a **monitoring stack** (Prometheus + Grafana) and enables end‑to‑end CI/CD via **GitHub Actions**.
+
+The repository layout (relevant folders) is:
+
+```
+.
+├─ backend/                # Node.js backend source
+├─ frontend/               # React/Vite frontend source
+├─ Dockerfile              # Multi‑stage build for the backend image
+├─ .github/workflows/      # GitHub Actions CI/CD pipeline
+│   └─ DevSecOps.yml       # Build → Trivy scan → ECR push → GitOps update
+├─ K8's/                  # Kustomize manifests for the app and monitoring
+│   ├─ kustomization.yaml  # Base Kustomization file
+│   ├─ namespace.yaml
+│   ├─ backend/            # Backend Deployment & Service
+│   ├─ frontend/           # Frontend Deployment & Service
+│   └─ monitoring/         # Prometheus & Grafana manifests
+└─ README.md               # ← this file
+```
 
 ---
 
-## 2. Prerequisites
-- **AWS CLI v2** configured with appropriate permissions (`aws sts get-caller-identity`).
-- **Terraform >= 1.5**
-- **kubectl >= 1.28**
-- **Git**
+## Prerequisites (Windows)
+
+| Tool | Why needed | Install command / link |
+|------|------------|------------------------|
+| **Git** | Source control, push/pull | <https://git-scm.com/downloads> |
+| **PowerShell 7+** (or cmd) | Run the commands below | <https://github.com/PowerShell/PowerShell/releases> |
+| **Docker Desktop** | Build multi‑stage images | <https://www.docker.com/products/docker-desktop> |
+| **AWS CLI** (`aws`) | Authenticate with EKS & ECR | `winget install --id Amazon.AWSCLI` |
+| **kubectl** | Interact with the cluster | `winget install Kubernetes.kubectl` |
+| **eksctl** | Create / update EKS clusters (optional) | `winget install eksctl` |
+| **kustomize** | Render manifests for Argo CD | `choco install kustomize` (or `winget install kustomize`) |
+| **jq** (optional) | JSON parsing for scripts | `choco install jq` |
+| **Node.js 22 (LTS)** | Build the frontend locally (optional) | <https://nodejs.org/en/download> |
+| **Python 3.11+** | Required for some helper scripts | <https://www.python.org/downloads/> |
+| **Helm** (optional for extra charts) | Install other tools via Helm | `winget install Helm.Helm` |
+| **Trivy** (static image scanner) | Security scanning in CI | `winget install AquaSecurity.Trivy` |
+
+> **Tip**: After installing Docker Desktop, ensure the Docker daemon is running before executing any `docker` commands.
 
 ---
 
-## 3. Fast Deployment Guide (Trainee Step-by-Step)
+## Local Development Setup
 
-### Step 1: Configure Terraform Variables
-Edit `infra/terraform.tfvars`:
-```hcl
-aws_region     = "us-east-1"
-environment    = "prod"
-cluster_name   = "blog-prod-eks"
-cluster_version = "1.31"
-instance_types = ["t3.small"]
-desired_size   = 2
+1. **Clone the repository**
+   ```powershell
+   git clone https://github.com/pratikgayakwad07/blog-app-eks-devsecops.git
+   cd blog-app-eks-devsecops
+   ```
 
-github_org  = "pratikgayakwad07"
-github_repo = "blog-app-eks-devsecops"
-```
+2. **Configure AWS credentials** (profile `default` is assumed).  You need a user/role with permissions for EKS, ECR and IAM.
+   ```powershell
+   aws configure   # set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, region, output
+   ```
 
-### Step 2: Provision AWS Infrastructure with Terraform
-```bash
-cd infra
-terraform init
-terraform plan
-terraform apply -auto-approve
-```
-*Creates: VPC with public/private subnets, NAT Gateway, ECR repositories (`prod/blog-app`, `prod/backend-blog-app`), GitHub Actions IAM OIDC Role, and EKS Cluster with EBS CSI Addon.*
+3. **Verify you can reach the EKS cluster**
+   ```powershell
+   # Replace <cluster-name> with the name defined in your kubeconfig (see below)
+   aws eks update-kubeconfig --region us-east-1 --name blog-prod-eks
+   kubectl get nodes
+   ```
+   You should see a list of worker nodes.
 
-### Step 3: Update Kubeconfig
-```bash
-aws eks update-kubeconfig --name blog-prod-eks --region us-east-1
-kubectl get nodes
-```
+4. **Optional – Build images locally** (useful for testing before CI runs)
+   ```powershell
+   # Build backend image (multi‑stage Dockerfile)
+   docker build -t backend:local .
 
-### Step 4: Deploy Monitoring Stack (Prometheus & Grafana)
-```bash
-kubectl apply -k "K8's/monitoring"
-kubectl get pods -n monitoring
-```
-Access Grafana:
-```bash
-kubectl get svc grafana -n monitoring
-# Open the LoadBalancer external hostname in your browser
-# Default Credentials: admin / admin123
-```
+   # Tag and push to your own ECR (replace <account-id> and <repo>)
+   $accountId = (aws sts get-caller-identity --query Account --output text)
+   $ecrRepo  = "$accountId.dkr.ecr.us-east-1.amazonaws.com/backend-blog-app"
+   docker tag backend:local $ecrRepo:dev
+   aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin $accountId.dkr.ecr.us-east-1.amazonaws.com
+   docker push $ecrRepo:dev
+   ```
 
-### Step 5: Install & Connect Argo CD
-```bash
-kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+---
+
+## GitHub Actions CI/CD Pipeline (`.github/workflows/DevSecOps.yml`)
+
+The workflow runs on every push to `main` and performs the following steps:
+
+1. **Checkout repository**
+2. **Set up Docker** (Docker Buildx) – needed for multi‑arch builds.
+3. **Build backend image** (Dockerfile) – produces a slim `nodejs22` image.
+4. **Trivy scan** – fails the pipeline if any CVEs with severity ≥ `HIGH` are found.
+5. **Push image to Amazon ECR** – the image is tagged with the Git SHA.
+6. **Update `kustomization.yaml`** – `kustomize edit set image …` rewrites the image tag in `K8's/kustomization.yaml` and commits the change back to the repo.
+7. **Argo CD sync** – the GitOps update triggers Argo CD (already installed on the cluster) to roll out the new image.
+8. **Verification** – a lightweight job checks that the pods are `Ready` after the rollout.
+
+You can view the full workflow file in the repo under `.github/workflows/DevSecOps.yml`.
+
+---
+
+## Deploying the Application with GitOps (Argo CD)
+
+### 1️⃣ Install Argo CD (one‑time)
+```powershell
+kubectl create namespace argocd
 kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
-kubectl rollout status deployment/argocd-server -n argocd --timeout=10m
-
-# Get Initial Argo CD Admin Password:
-kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d && echo
-
-# Register Application in Argo CD:
-kubectl apply -f argocd/application.yaml
+# Wait for all pods to be Ready (~1 minute)
+kubectl wait --for=condition=Ready pod -n argocd --all --timeout=180s
 ```
 
-### Step 6: Verify Application Workloads
-```bash
-kubectl get all -n blog-app
-kubectl get svc frontend-service -n blog-app
+### 2️⃣ Access the Argo CD UI
+```powershell
+# Port‑forward to localhost (run in a separate terminal)
+kubectl port-forward svc/argocd-server -n argocd 8080:443
 ```
-Open the `EXTERNAL-IP` (AWS Network/Application Load Balancer URL) to interact with the Blog Application!
+Open <http://localhost:8080>. Retrieve the admin password:
+```powershell
+kubectl -n argocd get secret argocd-initial-admin-secret \
+   -o jsonpath="{.data.password}" | % { [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($_)) }
+```
+
+### 3️⃣ Register the repository in Argo CD
+* In the UI click **Settings → Repositories → Connect Repo URL**
+* Repo URL: `https://github.com/pratikgayakwad07/blog-app-eks-devsecops.git`
+* Choose **GitHub** as provider and authenticate with a **personal access token** that has `repo` scope.
+
+### 4️⃣ Create the Application
+* Click **+ New App**
+* **Application name**: `blog-app`
+* **Project**: `default`
+* **Sync policy**: *Automated* (optional: enable *Prune* & *Self‑heal*)
+* **Repository URL**: the repo you just added
+* **Path**: `K8's`
+* **Cluster URL**: `https://kubernetes.default.svc`
+* **Namespace**: `blog-app` (or any namespace you prefer; the manifest includes a `Namespace.yaml` that will be created)
+* Save & click **Sync**.
+
+Argo CD will now render the Kustomize overlays, pull the images from ECR and create the backend, frontend, Prometheus & Grafana resources.
 
 ---
 
-## 4. DevOps Troubleshooting Guide (As Required by Assessment)
+## Monitoring Stack (Prometheus + Grafana)
 
-### Issue 1: Pod in CrashLoopBackOff
-- **Diagnosis**:
-  ```bash
-  kubectl get pods -n blog-app
-  kubectl describe pod <pod-name> -n blog-app
-  kubectl logs <pod-name> -n blog-app --previous
-  ```
-- **Common Root Causes**:
-  - Missing database credentials or inability to resolve `mysql-service`.
-  - Application startup crash or uncaught runtime exception.
-  - File permissions violation when running as non-root user (`securityContext`).
-- **Resolution**: Verify Secret keys in `mysql-secret` and ConfigMap `mysql-config`. Ensure MySQL statefulset is `Ready` before backend starts.
+All monitoring manifests live under `K8's/monitoring`.  They are applied automatically by the GitOps sync because they are listed in the root `kustomization.yaml`.
 
-### Issue 2: Argo CD Application OutOfSync
-- **Diagnosis**:
-  ```bash
-  kubectl get application -n argocd
-  kubectl describe application simple-blog-app -n argocd
-  ```
-- **Common Root Causes**:
-  - Outdated Git revision or path mismatch in `argocd/application.yaml`.
-  - Manual changes made to cluster (`kubectl edit`) conflicting with desired Git state.
-- **Resolution**: Click "SYNC" in Argo CD dashboard or run `argocd app sync simple-blog-app --prune`. Ensure automated sync with self-heal is enabled in `spec.syncPolicy`.
+If you need to apply them manually (for debugging):
+```powershell
+kubectl apply -k "C:/Users/prati/Desktop/blog-app-fixed/K8's/monitoring"
+```
 
-### Issue 3: CI/CD Pipeline Failure (DevSecOps / GitHub Actions)
-- **Diagnosis**: Inspect GitHub Actions job console logs under the failed step.
-- **Common Root Causes**:
-  - **Trivy / Gitleaks fail**: Unresolved high/critical vulnerabilities or dummy secret strings committed.
-  - **ECR push denied**: AWS IAM OIDC Role ARN misconfigured or token expiration.
-- **Resolution**:
-  - Add specific CVE false positives to `.trivyignore`.
-  - Check IAM condition string `repo:<org>/<repo>:*` matches repository name exactly.
+**Access Grafana**
+```powershell
+kubectl port-forward svc/grafana -n monitoring 3000:80
+```
+Open <http://localhost:3000> (default credentials: `admin / admin`).
 
-### Issue 4: Application / Service Connectivity Issue
-- **Diagnosis**:
-  ```bash
-  kubectl get endpoints -n blog-app
-  kubectl exec -it deployment/backend -n blog-app -- curl -v http://mysql-service:3306
-  ```
-- **Common Root Causes**:
-  - Misconfigured `targetPort` vs container port.
-  - Service selector labels not matching pod labels.
-  - CoreDNS failure or AWS Security Group blocking inter-node traffic.
-- **Resolution**: Compare `spec.selector` in Service YAML with `metadata.labels` in Deployment YAML. Check Security Group rules for worker nodes.
+**Access Prometheus**
+```powershell
+kubectl port-forward svc/prometheus -n monitoring 9090:9090
+```
+Open <http://localhost:9090>.
 
 ---
 
-## 5. Teardown & Cost Cleanup
-To prevent unwanted AWS billing:
-```bash
-cd infra
-terraform destroy -auto-approve
+## Full Deployment Workflow (summary)
+
+1. **Developer makes code change** → pushes to `main`.
+2. GitHub Actions workflow builds the Docker image, runs Trivy, pushes to ECR, updates `K8's/kustomization.yaml` with the new image tag and pushes that change back to the repo.
+3. Argo CD detects the commit, renders the Kustomize overlays and applies the new manifests to the EKS cluster.
+4. Pods roll out the new image; the CI job verifies that all pods become `Ready`.
+5. Prometheus scrapes the `frontend` and `backend`; Grafana dashboards are automatically populated.
+
+---
+
+## Cleanup (optional)
+
+```powershell
+# Delete the GitOps app from Argo CD
+argocd app delete blog-app --cascade
+# Or via kubectl
+kubectl delete -k "C:/Users/prati/Desktop/blog-app-fixed/K8's"
+# Remove Argo CD installation
+kubectl delete namespace argocd
+# Remove monitoring stack
+kubectl delete namespace monitoring
 ```
+
+---
+
+## Troubleshooting
+
+| Symptom | Check | Fix |
+|---------|-------|-----|
+| `kubectl get pods` shows `ImagePullBackOff` | Verify the image tag in `K8's/kustomization.yaml` matches what exists in ECR. | Re‑run the CI pipeline or manually tag the image and push. |
+| Argo CD UI shows **OutOfSync** and **error** | Look at the **Events** tab of the failing resource. Common causes are missing ConfigMaps or mismatched resource names. | Ensure the `monitoring` Kustomization resources are present and that the `namespace.yaml` creates the correct namespace. |
+| Prometheus not scraping pods | Verify the `prometheus-config.yaml` contains the correct `scrape_configs` for `frontend` and `backend` services. | Re‑apply the monitoring Kustomization or patch the ConfigMap. |
+| `kubectl` cannot connect (TLS handshake timeout) | Your local `~/.kube/config` may be outdated. | Run `aws eks update-kubeconfig --region us-east-1 --name blog-prod-eks` again. |
+
+---
+
+## License
+
+This project is licensed under the **MIT License** – see the `LICENSE` file for details.
+
+---
+
+## Contact & Contributions
+
+* **Author**: Pratik Gayakwad (GitHub: `pratikgayakwad07`)
+* **Issues & Feature Requests**: Open a GitHub Issue.
+* **Pull Requests**: Feel free to fork the repo, make improvements and submit a PR.
