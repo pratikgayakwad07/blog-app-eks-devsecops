@@ -13,9 +13,9 @@ resources:
 - frontend/frontend-deployment.yml
 - frontend/frontend-service.yml
 images:
-- name: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/prod/backend-blog-app
-  newName: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/prod/backend-blog-app
+- name: 122384809512.dkr.ecr.us-east-1.amazonaws.com/prod/backend-blog-app
+  newName: 122384809512.dkr.ecr.us-east-1.amazonaws.com/prod/backend-blog-app
   newTag: c67fefde6e07ae2ad5639ef3fe70e8d985eea563
-- name: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/prod/blog-app
-  newName: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/prod/blog-app
+- name: 122384809512.dkr.ecr.us-east-1.amazonaws.com/prod/blog-app
+  newName: 122384809512.dkr.ecr.us-east-1.amazonaws.com/prod/blog-app
   newTag: c67fefde6e07ae2ad5639ef3fe70e8d985eea563

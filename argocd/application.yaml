@@ -8,7 +8,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/YOUR_GITHUB_USERNAME/blog-app-eks-devsecops.git
+    repoURL: https://github.com/pratikgayakwad07/blog-app-eks-devsecops.git
     targetRevision: main
     path: K8's
   destination:

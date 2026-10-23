@@ -283,7 +283,9 @@ jobs:
 
       - name: Set up Kustomize
         run: |
-          curl -sLo kustomize https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/v5.8.1/kustomize_v5.8.1_windows_amd64.exe
+          # Install Kustomize (Linux binary)
+          curl -sLo kustomize.tar.gz https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/v5.8.1/kustomize_v5.8.1_linux_amd64.tar.gz
+          tar -xzf kustomize.tar.gz kustomize
           chmod +x kustomize
           mv kustomize /usr/local/bin/kustomize
 
