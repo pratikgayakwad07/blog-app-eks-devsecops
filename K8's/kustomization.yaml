@@ -15,10 +15,10 @@ resources:
 images:
 - name: /prod/backend-blog-app
   newName: /prod/backend-blog-app
-  newTag: 614f2307276457ec777b8cc3e8e4373e3f8f5b4f
+  newTag: d36cca2e859236a6dfbc6c1e6cc09887022018ff
 - name: /prod/blog-app
   newName: /prod/blog-app
-  newTag: 614f2307276457ec777b8cc3e8e4373e3f8f5b4f
+  newTag: d36cca2e859236a6dfbc6c1e6cc09887022018ff
 - name: 122384809512.dkr.ecr.us-east-1.amazonaws.com/prod/backend-blog-app
   newName: 122384809512.dkr.ecr.us-east-1.amazonaws.com/prod/backend-blog-app
   newTag: c67fefde6e07ae2ad5639ef3fe70e8d985eea563
